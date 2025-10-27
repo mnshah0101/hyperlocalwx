@@ -6,6 +6,7 @@ Tiny helpers for Team 46 to work with the hourly feature parquet and stations.
 
 - Python ≥ 3.9
 - OpenTopo API key (sign up at https://opentopography.org/developers)
+- Natural Earth shapefiles (for distance-to-water features)
 
 ## Install
 
@@ -18,6 +19,27 @@ pip install -e .
 ```
 
 This will automatically install dependencies: `pandas`, `pyarrow`, `geopandas`, `shapely`
+
+3. Download Natural Earth shapefiles (required for distance-to-water features):
+
+```bash
+cd raw/natural_earth
+
+# Download coastline
+wget https://www.naturalearthdata.com/http//www.naturalearthdata.com/download/10m/physical/ne_10m_coastline.zip
+unzip ne_10m_coastline.zip
+
+# Download lakes
+wget https://www.naturalearthdata.com/http//www.naturalearthdata.com/download/10m/physical/ne_10m_lakes.zip
+unzip ne_10m_lakes.zip
+
+# Clean up zip files
+rm *.zip
+
+cd ../..
+```
+
+**Why these files are needed:** The `dist_coast_m` and `dist_lake_m` features require Natural Earth shapefiles. Without them, these features will be NaN.
 
 ---
 
@@ -287,6 +309,30 @@ python scripts/get_data.py --region <region>
 ```
 
 Get a free API key from: https://opentopography.org/developers
+
+**`NaN values in 'dist_coast_m' and 'dist_lake_m'`**
+
+You need to download Natural Earth shapefiles manually:
+```bash
+cd raw/natural_earth
+
+# Download coastline
+wget https://www.naturalearthdata.com/http//www.naturalearthdata.com/download/10m/physical/ne_10m_coastline.zip
+unzip ne_10m_coastline.zip
+
+# Download lakes
+wget https://www.naturalearthdata.com/http//www.naturalearthdata.com/download/10m/physical/ne_10m_lakes.zip
+unzip ne_10m_lakes.zip
+
+# Clean up
+rm *.zip
+cd ../..
+
+# Rebuild features with the shapefiles now present
+python scripts/build_features.py --region <region>
+```
+
+These shapefiles are required for calculating distances to coastlines and lakes. Download from Natural Earth: https://www.naturalearthdata.com/downloads/10m-physical-vectors/
 
 **`❌ Missing required columns: ['station', 'time', 'temp_c']`**
 
