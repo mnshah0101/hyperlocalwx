@@ -45,8 +45,12 @@ First, you must download and process the raw data for your region:
 # Set your OpenTopo API key (required for DEM terrain features)
 export OPENTOPO_KEY=your_key_here
 
-# Fetch data and build features for a region
+# Fetch data and build features for a region (recommended - all-in-one)
 python examples/01_fetch_and_build_region.py --region sf_coast_inland
+
+# Or run steps individually:
+# python scripts/get_data.py --region sf_coast_inland
+# python scripts/build_features.py --region sf_coast_inland
 ```
 
 **Available regions:**
@@ -57,7 +61,10 @@ python examples/01_fetch_and_build_region.py --region sf_coast_inland
 - `phoenix_uhi` - Phoenix urban heat island
 - `cape_cod` - Cape Cod region
 
-This creates: `data/features_hourly_<region>.parquet`
+**This creates:**
+- `data/features_hourly_<region>.parquet` - Main feature file with hourly data
+- `data/station_index.parquet` - Station metadata (automatically built!)
+- `data/station_aliases.json` - Station lookup aliases (automatically built!)
 
 ### Step 2: Create Targets and Train/Valid Split
 
@@ -123,26 +130,47 @@ data/features_hourly_<region>.parquet
 
 ---
 
-## Station index (one-time per region)
+## Station Index
 
-Build a canonical station index and alias map so any key (ICAO or USAF/WBAN) resolves to a single `station_id` (`USAF-WBAN`).
+The station index provides a unified view of all stations with metadata and static features. **It's now automatically built when you run `build_features.py`!**
+
+### Automatic Creation (Recommended)
+
+The station index is created automatically during feature building:
+
+```bash
+python scripts/build_features.py --region sf_coast_inland
+```
+
+This produces:
+- `data/station_index.parquet` - One row per station with metadata + terrain features
+- `data/station_aliases.json` - Alias map for ICAO/USAF/WBAN lookup
+
+### Manual Creation (If Needed)
+
+If you need to rebuild the index separately:
+
+```bash
+python scripts/build_station_index.py --region sf_coast_inland
+```
+
+Or in Python:
 
 ```python
 import hyperlocalwx as wx
 
-# meta_df = output of your station selection step (from NOAA catalog)
-# static_df = per-station static features (elevation_m, dist_coast_m, etc.)
-idx = wx.build_station_index(meta_df, region_key="sf_coast_inland", static_features_df=static_df)
+# Load your metadata
+meta = pd.read_parquet("data/noaa_meta_sf_coast_inland.parquet")
 
-# write alias map for quick resolution (KSFO -> 724940-23234, etc.)
+# Build index (with optional static features)
+idx = wx.build_station_index(
+    meta_df=meta,
+    region_key="sf_coast_inland",
+    static_features_df=static_features  # optional
+)
+
+# Save aliases for quick lookup
 wx.save_station_aliases(idx)
-```
-
-**Files produced**
-
-```
-data/station_index.parquet     # one row per station (metadata + optional static features)
-data/station_aliases.json      # alias -> station_id map
 ```
 
 **Resolve any key to canonical ID**
@@ -217,37 +245,138 @@ print(f"RMSE={rmse:.2f}  MAE={mae:.2f}  R2={r2:.3f}")
 
 ## Troubleshooting
 
-### `ModuleNotFoundError: No module named 'hyperlocalwx'`
-Make sure you've run `pip install -e .` from the project root directory.
+### Installation Issues
 
-### `OPENTOPO_KEY not set` warning
-Get a free API key from https://opentopography.org/developers and set it:
+**`ModuleNotFoundError: No module named 'hyperlocalwx'`**
 ```bash
-export OPENTOPO_KEY=your_actual_key_here
+# Make sure you're in the project directory
+cd hyperlocalwx
+pip install -e .
 ```
 
-### `FileNotFoundError` when running step 2
-You must run Step 1 first to download and build the features. The workflow is sequential.
+**Missing dependencies during feature building**
+```bash
+# Reinstall with all dependencies
+pip install -e . --force-reinstall
+```
 
-### Package installation fails with "Multiple top-level packages discovered"
-This shouldn't happen with the current `pyproject.toml`, but if it does, make sure you have the `[tool.setuptools.packages.find]` section in `pyproject.toml`.
+### Data Pipeline Issues
+
+**`❌ Features file not found: data/features_hourly_<region>.parquet`**
+
+You need to run the feature building pipeline first:
+```bash
+export OPENTOPO_KEY=your_key_here
+python scripts/get_data.py --region <region>
+python scripts/build_features.py --region <region>
+```
+
+**`❌ Station index not found: data/station_index.parquet`**
+
+The station index should be built automatically, but you can rebuild it:
+```bash
+python scripts/build_station_index.py --region <region>
+```
+
+**`❌ DEM file not found`**
+
+You need to set your OpenTopo API key before fetching data:
+```bash
+export OPENTOPO_KEY=your_actual_key_here
+python scripts/get_data.py --region <region>
+```
+
+Get a free API key from: https://opentopography.org/developers
+
+**`❌ Missing required columns: ['station', 'time', 'temp_c']`**
+
+Make sure you're using the correct DataFrame from the pipeline:
+```python
+df = wx.load_features("sf_coast_inland")  # Correct
+# Not: df = pd.read_csv("some_other_file.csv")
+```
+
+### Workflow Issues
+
+**Empty train or validation set after split**
+
+Check your train_quantile parameter:
+```python
+train, valid = wx.time_split(df, train_quantile=0.8)  # 80% train, 20% valid
+```
+
+**Duplicate columns after enrichment (_x, _y suffixes)**
+
+This is expected if your DataFrame already has those features. The enrichment will only add missing columns. Use `suffixes=("", "_from_index")` if you want to explicitly see which columns came from the index.
+
+### Error Messages
+
+All functions now provide helpful error messages with:
+- ❌ Clear description of what went wrong
+- 💡 Suggestions on how to fix it
+- 📝 Exact commands to run
+
+If you see an error, read the full message - it will tell you exactly what to do!
 
 ---
 
 ## Quick Reference: Complete Workflow
 
 ```bash
-# 1. Install
+# 1. Install the package
 pip install -e .
 
-# 2. Set API key
-export OPENTOPO_KEY=your_key_here
+# 2. Set your OpenTopo API key (free from opentopography.org)
+export OPENTOPO_KEY=your_actual_key_here
 
-# 3. Fetch data and build features
+# 3. Fetch data and build features (downloads NOAA data + terrain)
 python examples/01_fetch_and_build_region.py --region sf_coast_inland
 
-# 4. Create targets and split
+# 4. Create next-hour targets and train/valid split
 python examples/02_make_targets_and_split.py --region sf_coast_inland --q 0.8
 
-# 5. Now you can train models using data/train.parquet and data/valid.parquet
+# 5. Train your models using the prepared data
+# Files ready: data/train.parquet and data/valid.parquet
 ```
+
+## What's New in This Version
+
+**Automatic Station Index** - No need to manually build station index, it's created during feature building
+
+**Multi-Region Support** - Region-specific filenames (station_index_<region>.parquet) prevent conflicts when working with multiple regions
+
+**Better Error Messages** - All functions provide clear, helpful error messages with fix suggestions
+
+**Complete Dependencies** - All required packages are now in `pyproject.toml`
+
+**Standalone Tools** - New `scripts/build_station_index.py` for rebuilding index separately
+
+**Progress Indicators** - Feature building shows progress for each step
+
+**Input Validation** - Functions validate inputs and provide specific error messages
+
+## API Reference
+
+### Core Functions
+
+**Data Loading**
+- `load_features(region)` - Load features parquet by region name or path
+- `load_station_index(path=None, region=None)` - Load station metadata index
+
+**Preprocessing**
+- `create_next_hour_target(df, drop_last=True)` - Add next-hour temperature target
+- `time_split(df, train_quantile=0.8)` - Time-based train/valid split
+
+**Station Management**
+- `build_station_index(meta_df, region_key, static_features_df=None, out_path=None)` - Build station metadata index
+- `save_station_aliases(station_index, out_path=None, region=None)` - Create alias lookup JSON
+- `resolve_station_id(key, alias_path=None, region=None)` - Resolve ICAO/USAF/WBAN to station_id
+- `stations_in_region(region, index_path=None)` - Get all stations in a region
+- `stations_in_bbox(west, south, east, north, index_path=None, region=None)` - Get stations in bounding box
+- `enrich_with_station_meta(df, index_path=None, region=None)` - Add station metadata to hourly data
+
+**Baselines**
+- `persistence_baseline(df_valid, target_col="temp_c_tplus1")` - Naive baseline (next hour = current hour)
+- `climatology_baseline(df_train, df_valid, target_col="temp_c_tplus1")` - Per-station-hour average baseline
+
+All functions include comprehensive error checking and helpful messages.
