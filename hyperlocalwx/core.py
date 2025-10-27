@@ -5,7 +5,9 @@ import json
 import pandas as pd
 import numpy as np
 
-DATA_DIR = Path("data")
+# Use absolute path relative to package location, not CWD
+# This allows the library to work from any directory (e.g., Jupyter notebooks)
+DATA_DIR = Path(__file__).parent.parent / "data"
 
 # -------------------------
 # I/O
